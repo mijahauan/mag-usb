@@ -19,20 +19,22 @@ Key points:
 - Configurable cycle counts, gains, and sampling parameters.
 - Optional orientation translations in 90° increments about X/Y/Z, set in config.toml.
 - Support for concurrent output to `stdout` and named pipes for IPC (local monitoring/dashboards).
+- Optional WebSocket server (`-W`) that broadcasts each JSON line to connected clients (built in by default).
 - Convenience flag to print current settings (`-P`).
 - Optional diagnostics: verify devices, scan I²C bus, etc.
 
 ## Build (using CMake)
 
-Plain CMake:
 ```
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --target mag-usb
 ```
 
-Optional WebSocket support (vendored header-only library):
+WebSocket output is built in by default — it vendors a header-only
+C++11 library, so a C++ compiler is required.  For a pure-C build
+without it, configure with `-DENABLE_WEBSOCKET=OFF`:
 ```
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DENABLE_WEBSOCKET=ON
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DENABLE_WEBSOCKET=OFF
 cmake --build build --target mag-usb
 ```
 
@@ -133,6 +135,9 @@ Parameters:
    -u                     :  Use named pipes for output.
    -i <path>              :  Path for input named pipe.
    -o <path>              :  Path for output named pipe.
+   -W                     :  Enable WebSocket output.
+   -w <port>              :  WebSocket server port.
+   -a <addr>              :  WebSocket bind address.
    -V                     :  Display software version and exit.
    -h or -?               :  Display this help.
 ```

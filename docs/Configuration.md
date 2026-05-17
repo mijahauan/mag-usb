@@ -78,7 +78,7 @@ Note: When `use_pipes=true`, the program will create the pipes if they do not ex
 - `enable` (bool) — Enable the WebSocket output server. Default: false.
 - `bind_address` (string) — Server bind address. Default: `0.0.0.0`.
 - `port` (int) — Server port. Default: 8765.
-Note: This section is active only when built with `-DENABLE_WEBSOCKET=ON`.
+Note: This section requires WebSocket support compiled in (the default — configure with `-DENABLE_WEBSOCKET=OFF` to omit it).
 
 ## Example
 ```toml

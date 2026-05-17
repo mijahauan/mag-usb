@@ -2,6 +2,12 @@
 
 This document captures the evaluation and comparison of approaches to add WebSocket output to mag-usb while keeping build and dependency constraints in mind.
 
+> **Update (2026-05):** WebSocket support is now built **by default** —
+> the `ENABLE_WEBSOCKET` CMake option, originally `OFF` (opt-in), now
+> defaults to `ON`.  Configure with `-DENABLE_WEBSOCKET=OFF` for a
+> pure-C build.  The remainder of this document is preserved as the
+> original design evaluation.
+
 ## Key constraint check
 - Both WebSocket++ and MengRao/websocket are C++ libraries; they require a C++ compiler and C++11+ (and typically Asio/Boost). That conflicts with “keep project C11” if you mean “no C++ toolchain required.”
 - “Header-only” does not mean “dependency-free.” WebSocket++ usually depends on Boost.Asio or standalone Asio, so you would still be vendoring additional headers and accepting C++ ABI/toolchain implications.

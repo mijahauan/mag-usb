@@ -9,7 +9,9 @@ set(CMAKE_C_EXTENSIONS OFF)
 # Options for build hygiene
 option(ENABLE_WERROR "Treat warnings as errors" OFF)
 option(BUILD_TESTING "Enable building of tests" ON)
-option(ENABLE_WEBSOCKET "Enable WebSocket output support" OFF)
+# WebSocket output is built by default; it pulls in a C++11 toolchain
+# (the vendored MengRao/websocket lib).  Turn OFF for a pure-C build.
+option(ENABLE_WEBSOCKET "Enable WebSocket output support" ON)
 
 # Common warning flags (portable subset)
 if (CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
