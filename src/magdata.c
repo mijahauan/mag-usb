@@ -102,14 +102,33 @@ void showErrorMsg(int rv)
 
 //------------------------------------------
 // setNOSReg(volatile pList *p)
+//
+// Writes the NOS (Number Of Samples) register on the RM3100 from
+// p->NOSRegValue.  NOS only affects continuous-measurement mode
+// (CMM): the chip internally averages NOS samples before raising
+// DRDY.  In POLL mode (the binary's default) this register has no
+// effect on a single-shot read; we still program it so it's in a
+// known state if/when CMM averaging is exercised.  The host-side
+// XYZ scaling in main.c does NOT divide by NOS in POLL mode -- see
+// the comment above formatOutput().
 //------------------------------------------
 int setNOSReg(pList *p)
 {
-    (void)p;
-    int rv = 0;
-    //#if __DEBUG
-    //    fprintf(OUTPUT_PRINT, "    [Child]: In setNOSReg():: Setting undocumented NOS register to value: %2X\n", p->NOSRegValue);
-    //#endif
+    if(p == NULL) return -1;
+    // Local literal: see same-TU note in setCycleCountRegs() and
+    // sensor_tests.c about why we don't #include "rm3100.h" here.
+    const uint8_t REG_NOS = 0x0A; // RM3100I2C_NOS
+    uint8_t v = (uint8_t)(p->NOSRegValue & 0xFF);
+    int rv = i2c_pololu_write_to(p->adapter,
+                                 (uint8_t)p->magAddr,
+                                 REG_NOS,
+                                 &v, 1);
+    if(rv < 0)
+    {
+        fprintf(OUTPUT_ERROR,
+                "setNOSReg: i2c write to NOS reg failed: %s\n",
+                i2c_pololu_error_string(-rv));
+    }
     return rv;
 }
 
@@ -164,24 +183,65 @@ unsigned short getCCGainEquiv(unsigned short CCVal)
 
 //------------------------------------------
 // setCycleCountRegs()
+//
+// Programs the RM3100 cycle-count registers from p->cc_x/y/z and
+// updates the host-side gain values so the XYZ-scaling math in
+// main.c uses the same gain the chip is actually applying.
+//
+// The chip stores each axis cycle count as a 16-bit value across
+// two adjacent registers (high byte first):
+//     CCX_1 (0x04), CCX_0 (0x05)
+//     CCY_1 (0x06), CCY_0 (0x07)
+//     CCZ_1 (0x08), CCZ_0 (0x09)
+//
+// All six bytes are written in one I2C transaction starting at
+// CCX_1 so the chip's register auto-increment carries us through.
+// The RM3100 only acts on CC writes when it is idle (not actively
+// measuring); callers should issue this before kicking off the
+// first POLL or before entering CMM.
+//
+// Prior versions of this function had every i2c_write commented
+// out, so configured cc_x/y/z values updated only the host-side
+// gain and never the chip, leaving the chip at its power-on
+// default of CC=200/axis (gain ≈75).  That silently broke any
+// per-axis tuning the operator attempted via config.
 //------------------------------------------
 void setCycleCountRegs(pList *p)
 {
-    //int i = 0;
-//    i2c_write(p->pi, RM3100I2C_CCX_1, (p->cc_x >> 8));
-//    i2c_write(p->pi, RM3100I2C_CCX_0, (p->cc_x & 0xff));
-    p->x_gain = getCCGainEquiv(p->cc_x);
-//    i2c_write(p->pi, RM3100I2C_CCY_1, (p->cc_y >> 8));
-//    i2c_write(p->pi, RM3100I2C_CCY_0, (p->cc_y & 0xff));
-    p->y_gain = getCCGainEquiv(p->cc_y);
-//    i2c_write(p->pi, RM3100I2C_CCZ_1, (p->cc_y >> 8));
-//    i2c_write(p->pi, RM3100I2C_CCZ_0, (p->cc_y & 0xff));
-    p->z_gain = getCCGainEquiv(p->cc_z);
-    // Write NOSRegValue to  register 0A
-//    i2c_write(p->pi, RM3100I2C_NOS,   (uint8_t)(p->NOSRegValue));
+    if(p == NULL) return;
 
-//        fprintf(OUTPUT_ERROR, "\nIn setCycleCountRegs():: Setting NOS register to value: %2X\n", p->NOSRegValue);
-//        fprintf(OUTPUT_ERROR, "CycleCounts  - X: %u, Y: %u, Z: %u.\n", p->cc_x, p->cc_y, p->cc_x);
+    // rm3100.h defines these as file-scope const symbols with
+    // external linkage, so this TU can't include it without
+    // multiply-defining them at link time (see the same note in
+    // sensor_tests.c).  Use local literals matching rm3100.h.
+    const uint8_t REG_CCX_1 = 0x04; // RM3100I2C_CCX_1
+    uint8_t cc_bytes[6];
+    cc_bytes[0] = (uint8_t)((p->cc_x >> 8) & 0xFF);
+    cc_bytes[1] = (uint8_t)( p->cc_x       & 0xFF);
+    cc_bytes[2] = (uint8_t)((p->cc_y >> 8) & 0xFF);
+    cc_bytes[3] = (uint8_t)( p->cc_y       & 0xFF);
+    cc_bytes[4] = (uint8_t)((p->cc_z >> 8) & 0xFF);
+    cc_bytes[5] = (uint8_t)( p->cc_z       & 0xFF);
+
+    int rv = i2c_pololu_write_to(p->adapter,
+                                 (uint8_t)p->magAddr,
+                                 REG_CCX_1,
+                                 cc_bytes, sizeof(cc_bytes));
+    if(rv < 0)
+    {
+        fprintf(OUTPUT_ERROR,
+                "setCycleCountRegs: burst write to CCX_1..CCZ_0 failed: %s\n",
+                i2c_pololu_error_string(-rv));
+    }
+
+    // Update host-side gains AFTER the chip write so they match what
+    // the chip is now applying.  Out-of-range or write-failed cc
+    // values still leave the host's gain consistent with the value
+    // we *attempted* to program -- callers that want to verify the
+    // chip really took it should issue a read-back (-P).
+    p->x_gain = getCCGainEquiv(p->cc_x);
+    p->y_gain = getCCGainEquiv(p->cc_y);
+    p->z_gain = getCCGainEquiv(p->cc_z);
 //        fprintf(OUTPUT_ERROR, "Gains        - X: %u, Y: %u, Z: %u.\n", p->x_gain, p->y_gain, p->z_gain);
 //        fprintf(OUTPUT_ERROR, "NOS Register - %2X.\n", p->NOSRegValue);
 }

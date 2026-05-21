@@ -38,6 +38,7 @@
 #include "main.h"
 #include "i2c.h"
 #include "i2c-pololu.h" // your Pololu API headers
+#include "magdata.h"    // setCycleCountRegs, setNOSReg
 #include "rm3100.h"
 
 
@@ -301,6 +302,28 @@ int i2c_initMagSensor(pList *p)
     // Setup the Mag sensor register initial state here.
     if(p->samplingMode == POLL)                                         // (p->samplingMode == POLL [default])
     {
+        // Program the chip's cycle-count and NOS registers from the
+        // configured cc_x/y/z and NOSRegValue BEFORE issuing the
+        // first POLL.  Previously these writes were stubbed, so the
+        // chip ran at its power-on defaults (CC=200/axis, NOS=1)
+        // regardless of what the operator configured -- silently
+        // defeating any per-axis tuning attempt AND making the
+        // /NOSRegValue divisor in formatOutput() compensate for
+        // averaging the chip wasn't doing, which shrank reported
+        // magnitudes by ~NOS (default 60).
+        //
+        // Empirically the RM3100 applies NOS as an internal
+        // accumulator/averaging factor even in single-shot POLL
+        // mode: writing NOS=N causes raw 24-bit XYZ output to be ~N×
+        // a single-cycle measurement.  formatOutput() then divides
+        // by p->NOSRegValue to reverse that accumulation, so the two
+        // sides must agree -- programming the chip's NOS register
+        // here is what makes them agree.  setCycleCountRegs() also
+        // updates the host-side gain values so the rest of the
+        // scaling math sees the chip's actual gain.
+        setCycleCountRegs(p);
+        (void)setNOSReg(p);
+
         rv = i2c_pololu_write_to(p->adapter, p->magAddr, RM3100_MAG_POLL, (uint8_t *) &command, 1);       //(XYZ_BUFLEN + 1)
         if(rv < 0)
         {
