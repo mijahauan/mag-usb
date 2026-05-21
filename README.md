@@ -61,8 +61,9 @@ To print current settings (and exit):
 ./build/mag-usb -P
 ```
 The program follows Linux filesystem conventions and looks for its configuration file in the following order:
-1. `/etc/mag-usb/config.toml`
-2. `config.toml` in the current working directory.
+1. The path given with `-f <path>` on the CLI, if any (a missing or unreadable file is a hard error in this mode -- no fallback).
+2. `/etc/mag-usb/config.toml`
+3. `config.toml` in the current working directory.
 
 If neither is found, reasonable default values are used. Command-line arguments always overrule both default values and those found in any configuration file.
 
