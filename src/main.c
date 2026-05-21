@@ -37,9 +37,26 @@ static char outBuf[256];
 // any Pololu USB-to-I2C adapter (PID 0x2502 or 0x2503) to /dev/ttyMAG0.
 // Use -O /dev/ttyACMn to override when the udev rule is not installed.
 char portpath[PATH_MAX] = "/dev/ttyMAG0";
-extern int CC_400;
-extern int GAIN_150;
-extern int RM3100_I2C_ADDRESS;
+// These symbols are defined in rm3100.h at file-scope external
+// linkage.  main.c can't #include "rm3100.h" because i2c.c already
+// includes it and two TUs including the header would multiply-define
+// every symbol in it at link time.  So we forward-declare just the
+// three we read here.  The extern types must match the definitions
+// in rm3100.h -- previously these were all `extern int`, which
+// works for CC_400 (uint32_t fits in int on every supported platform)
+// but is undefined behaviour for GAIN_150 (uint16_t, 2 bytes) and
+// RM3100_I2C_ADDRESS (uint8_t, 1 byte): the compiler emits a 4-byte
+// load and the upper bytes come from adjacent memory.  Symptom: -P
+// printed "Gains (X,Y,Z): 7405718, 7405718, 7405718" with the upper
+// half of each GAIN_150 read coming from neighbouring storage.  The
+// host-side gain value didn't matter at runtime because
+// setCycleCountRegs() (sigmond-integration PR #1) overwrites
+// p->x_gain from getCCGainEquiv(p->cc_x) before formatOutput()
+// reads it, but the bogus -P print was a real eyesore and a
+// genuine UB-shaped landmine for anyone who started trusting it.
+extern const uint32_t CC_400;
+extern const uint16_t GAIN_150;
+extern const uint8_t  RM3100_I2C_ADDRESS;
 
 #ifdef USE_PIPES
      char fifoCtrl[] = "/run/mag-usb/magctl.fifo";
