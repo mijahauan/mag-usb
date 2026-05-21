@@ -79,11 +79,33 @@ int getCommandLine(int argc, char** argv, pList *p)
 {
     int c;
 
-    while((c = getopt(argc, argv, "h?B:c:CD:g:PMSQTVO:ui:o:Ww:a:")) != -1)
+    while((c = getopt(argc, argv, "h?A:B:c:CD:f:g:PMSQTVO:ui:o:Ww:a:")) != -1)
     {
         //int this_option_optind = optind ? optind : 1;
         switch(c)
         {
+            case 'A':
+            {
+                // -A <addr>  Override the magnetometer I2C address.
+                // Accepts decimal (0..127), hex (0x...), or octal (0...);
+                // strtol auto-detects via base=0.  Must lie within the
+                // 7-bit I2C address space (1..127); 0 is reserved.
+                long addr = strtol(optarg, NULL, 0);
+                if(addr <= 0 || addr > 0x7F)
+                {
+                    fprintf(OUTPUT_ERROR,
+                            "\n ERROR Invalid: -A magnetometer address out of range (got %s, expected 1..127 / 0x01..0x7F).\n\n",
+                            optarg);
+                    exit(1);
+                }
+                p->magAddr = (int)addr;
+                break;
+            }
+            case 'f':
+                // -f <path>  Handled by the pre-scan in main() before
+                // load_config().  The case here just consumes the
+                // optarg so getopt doesn't complain.
+                break;
             case 'W':
                 p->useWebSocket = TRUE;
                 break;
@@ -163,10 +185,12 @@ int getCommandLine(int argc, char** argv, pList *p)
             case 'h':
             case '?':
                 fprintf(OUTPUT_PRINT, "\nParameters:\n\n");
+                fprintf(OUTPUT_PRINT, "   -A <addr>              :  Magnetometer I2C address.             [ default: from config or 0x20; dec/hex/oct via 0x.../0... ]\n");
                 fprintf(OUTPUT_PRINT, "   -B <reg mask>          :  Do built in self test (BIST).         [ Not implemented ]\n");
                 fprintf(OUTPUT_PRINT, "   -C                     :  Read back cycle count registers before sampling.\n");
                 fprintf(OUTPUT_PRINT, "   -c <count>             :  Set cycle counts as integer.          [ default: 200 decimal]\n");
                 fprintf(OUTPUT_PRINT, "   -D <rate>              :  Set magnetometer sample rate.         [ TMRC reg 96 hex default ].\n");
+                fprintf(OUTPUT_PRINT, "   -f <path>              :  Path to config.toml.                  [ when set, skips the /etc/mag-usb/config.toml and ./config.toml auto-discovery ]\n");
                 fprintf(OUTPUT_PRINT, "   -g <mode>              :  Device sampling mode.                 [ POLL=0 (default), CONTINUOUS=1 ]\n");
 #if(USE_POLOLU)
                 fprintf(OUTPUT_PRINT, "   -O                     :  Path to Pololu port in /dev.          [ default: /dev/ttyMAG0 ]\n");

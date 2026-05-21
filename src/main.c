@@ -102,14 +102,52 @@ int main(int argc, char** argv)
     //-----------------------------------------
     //  Load configuration from TOML file
     //  (command line args will override these)
+    //
+    //  Two modes:
+    //   1. -f <path> on the CLI: load exactly that file, no fallbacks.
+    //      Useful when a supervising process (e.g. mag-recorder) owns
+    //      the config and points us at /etc/<supervisor>/mag-usb-driver.toml
+    //      so /etc/mag-usb/ never has to exist on the host.
+    //   2. No -f: keep the historical auto-discovery -- try
+    //      /etc/mag-usb/config.toml first, then ./config.toml.
+    //
+    //  The -f flag is detected here via a manual argv pre-scan because
+    //  getopt() doesn't run until getCommandLine() below, and we need
+    //  the config path before that to honor the "CLI overrides config"
+    //  ordering.  cmdmgr.c still has a `case 'f':` no-op so getopt
+    //  recognizes the flag during its own pass (without it, getopt
+    //  would error on -f as unknown after we'd already consumed it).
     //-----------------------------------------
-    const char *etc_config = "/etc/mag-usb/config.toml";
-    const char *local_config = "config.toml";
-
-    if (load_config(etc_config, p) != 0)
+    const char *explicit_config = NULL;
+    for(int i = 1; i + 1 < argc; ++i)
     {
-        // If /etc config failed or didn't exist, try local directory
-        load_config(local_config, p);
+        if(strcmp(argv[i], "-f") == 0)
+        {
+            explicit_config = argv[i + 1];
+            break;
+        }
+    }
+
+    if(explicit_config != NULL)
+    {
+        if(load_config(explicit_config, p) != 0)
+        {
+            fprintf(OUTPUT_ERROR,
+                    "ERROR: failed to load config from '%s' (specified via -f).  Exiting.\n",
+                    explicit_config);
+            exit(1);
+        }
+    }
+    else
+    {
+        const char *etc_config = "/etc/mag-usb/config.toml";
+        const char *local_config = "config.toml";
+
+        if (load_config(etc_config, p) != 0)
+        {
+            // If /etc config failed or didn't exist, try local directory
+            load_config(local_config, p);
+        }
     }
 
     if((rv = getCommandLine(argc, argv, p)) != 0)

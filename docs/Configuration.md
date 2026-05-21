@@ -1,10 +1,14 @@
 # Configuration
 
-mag-usb reads an optional `config.toml` at startup. It searches for the configuration file in the following order:
-1. `/etc/mag-usb/config.toml`
-2. `config.toml` in the current working directory.
+mag-usb reads an optional `config.toml` at startup. Two paths are supported:
 
-If neither file is found, defaults are used. Invalid values are ignored or reduced to defaults. Command-line arguments always override both default values and those found in any configuration file.
+1. **Explicit path via `-f <path>`** — load exactly that file; the auto-discovery in (2) is skipped, and a missing or unreadable file is a hard error (exit 1). Use this when a supervising process owns the config (e.g. `mag-recorder` rendering `/etc/mag-recorder/mag-usb-driver.toml` and passing it via `-f`), so `/etc/mag-usb/` doesn't have to exist on the host.
+
+2. **Auto-discovery (no `-f`)** — searched in order:
+   1. `/etc/mag-usb/config.toml`
+   2. `config.toml` in the current working directory.
+
+If neither file is found in mode (2), defaults are used. Invalid values are ignored or reduced to defaults. Command-line arguments always override both default values and those found in any configuration file.
 
 Tip: Run `./mag-usb -P` to print the active settings and exit.
 

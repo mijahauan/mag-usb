@@ -17,7 +17,7 @@ Common issues and how to resolve them.
 ## Missing or ignored configuration
 - Symptom: `-P` shows defaults instead of your values.
 - Causes and fixes:
-  - `config.toml` is not in the current working directory. Run from the folder containing `config.toml`, or pass an absolute path (feature not currently implemented; current build only checks CWD).
+  - `config.toml` is not in the auto-discovery path. mag-usb looks for `/etc/mag-usb/config.toml` first, then `config.toml` in the current working directory. Either drop the file in one of those locations, or point at any path explicitly with `-f <path>` (which also makes a missing file a hard error instead of a silent fall-through to defaults).
   - Syntax errors: ensure `key = value` format, quoted strings, and whole-line comments only (no inline comments).
 
 ## Invalid orientation values
