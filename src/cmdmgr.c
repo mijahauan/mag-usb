@@ -13,6 +13,129 @@
 #include "main.h"
 #include "magdata.h"
 #include "cmdmgr.h"
+#include "i2c-pololu.h"   // -P chip-readback (CC/NOS/TMRC/REVID)
+
+// RM3100 register addresses, mirrored from rm3100.h.  We can't
+// #include "rm3100.h" here because it defines these as file-scope
+// const symbols with external linkage and i2c.c already includes
+// it -- a second include would multiply-define them at link time.
+// Same pattern sensor_tests.c and magdata.c already use.
+static const uint8_t RM3100_REG_CCX_1 = 0x04; // CC, 6 contiguous bytes
+static const uint8_t RM3100_REG_NOS   = 0x0A;
+static const uint8_t RM3100_REG_TMRC  = 0x0B;
+static const uint8_t RM3100_REG_REVID = 0x36;
+
+//------------------------------------------
+// showChipRegisters()
+//
+// Optional -P companion: open the Pololu adapter, read back the
+// RM3100's cycle-count / NOS / TMRC / REVID registers, and print
+// them next to the host-side values that showSettings() already
+// printed.  Useful for catching the failure mode where the host
+// thinks it programmed a register (e.g. cc_x=400) but the chip
+// never actually got the write -- without a readback that goes
+// undetected until somebody notices that scaled magnitudes look
+// wrong.
+//
+// Best-effort: if the adapter isn't present or the device isn't a
+// supported Pololu USB-I2C bridge, print a single "(unavailable: ...)"
+// line and return without erroring.  -P in offline contexts (e.g.
+// confirming what a binary *would* do on a machine without
+// hardware) still works as before.
+//------------------------------------------
+static void showChipRegisters(pList *p)
+{
+    fprintf(OUTPUT_PRINT, "\nChip register readback (RM3100 over Pololu @ %s, address 0x%02X):\n",
+            p->portpath ? p->portpath : "(no path)", (unsigned)(p->magAddr & 0xFF));
+
+    if(!p->use_I2C_converter || !p->adapter || !p->portpath || p->portpath[0] == '\0')
+    {
+        fprintf(OUTPUT_PRINT, "   (skipped: USB-I2C converter disabled or no port path)\n\n");
+        return;
+    }
+
+    int rv = i2c_pololu_check_device_available(p->portpath, 200);
+    if(rv != 0)
+    {
+        fprintf(OUTPUT_PRINT, "   (unavailable: %s not present or busy)\n\n", p->portpath);
+        return;
+    }
+    if(i2c_pololu_is_device_valid(p->portpath) != 0)
+    {
+        fprintf(OUTPUT_PRINT, "   (unavailable: %s is not a recognized Pololu USB-I2C adapter)\n\n", p->portpath);
+        return;
+    }
+
+    if(i2c_pololu_init(p->adapter) < 0)
+    {
+        fprintf(OUTPUT_PRINT, "   (open failed: adapter init error)\n\n");
+        return;
+    }
+    if(i2c_pololu_connect(p->adapter, p->portpath) < 0)
+    {
+        fprintf(OUTPUT_PRINT, "   (open failed: connect to %s)\n\n", p->portpath);
+        return;
+    }
+
+    const uint8_t addr = (uint8_t)p->magAddr;
+    uint8_t cc[6] = {0}, nos = 0, tmrc = 0, revid = 0;
+
+    int rv_cc    = i2c_pololu_read_from(p->adapter, addr, RM3100_REG_CCX_1, cc,     6);
+    int rv_nos   = i2c_pololu_read_from(p->adapter, addr, RM3100_REG_NOS,   &nos,   1);
+    int rv_tmrc  = i2c_pololu_read_from(p->adapter, addr, RM3100_REG_TMRC,  &tmrc,  1);
+    int rv_revid = i2c_pololu_read_from(p->adapter, addr, RM3100_REG_REVID, &revid, 1);
+
+    if(rv_cc >= 0)
+    {
+        int chip_cc_x = ((int)cc[0] << 8) | cc[1];
+        int chip_cc_y = ((int)cc[2] << 8) | cc[3];
+        int chip_cc_z = ((int)cc[4] << 8) | cc[5];
+        fprintf(OUTPUT_PRINT, "   Chip cycle counts (X,Y,Z):            %d, %d, %d   (host wants %d, %d, %d%s)\n",
+                chip_cc_x, chip_cc_y, chip_cc_z,
+                p->cc_x, p->cc_y, p->cc_z,
+                (chip_cc_x == p->cc_x && chip_cc_y == p->cc_y && chip_cc_z == p->cc_z) ? "" : " -- MISMATCH");
+    }
+    else
+    {
+        fprintf(OUTPUT_PRINT, "   Chip cycle counts:                    (read failed: %s)\n", i2c_pololu_error_string(-rv_cc));
+    }
+
+    if(rv_nos >= 0)
+    {
+        fprintf(OUTPUT_PRINT, "   Chip NOS register:                    %d (0x%02X)   (host wants %d%s)\n",
+                nos, nos, p->NOSRegValue,
+                (nos == (uint8_t)(p->NOSRegValue & 0xFF)) ? "" : " -- MISMATCH");
+    }
+    else
+    {
+        fprintf(OUTPUT_PRINT, "   Chip NOS register:                    (read failed: %s)\n", i2c_pololu_error_string(-rv_nos));
+    }
+
+    if(rv_tmrc >= 0)
+    {
+        fprintf(OUTPUT_PRINT, "   Chip TMRC register:                   0x%02X   (host wants 0x%02X%s)\n",
+                tmrc, (unsigned)(p->TMRCRate & 0xFF),
+                (tmrc == (uint8_t)(p->TMRCRate & 0xFF)) ? "" : " -- MISMATCH");
+    }
+    else
+    {
+        fprintf(OUTPUT_PRINT, "   Chip TMRC register:                   (read failed: %s)\n", i2c_pololu_error_string(-rv_tmrc));
+    }
+
+    if(rv_revid >= 0)
+    {
+        fprintf(OUTPUT_PRINT, "   Chip REVID register:                  0x%02X   (RM3100 expected 0x22)\n",
+                revid);
+    }
+    else
+    {
+        fprintf(OUTPUT_PRINT, "   Chip REVID register:                  (read failed: %s)\n", i2c_pololu_error_string(-rv_revid));
+    }
+
+    fprintf(OUTPUT_PRINT, "\n");
+
+    i2c_pololu_disconnect(p->adapter);
+}
 
 //------------------------------------------
 // showSettings()
@@ -70,6 +193,10 @@ void showSettings(pList *p)
     fprintf(OUTPUT_PRINT, "   Remote temperature I2C address:       0x%02X (hex)\n",  (unsigned)(p->remoteTempAddr & 0xFF));
 
     fprintf(OUTPUT_PRINT, "\n");
+
+    // Chip-side readback.  Best-effort -- prints "(unavailable: ...)"
+    // when the hardware isn't reachable so offline -P still works.
+    showChipRegisters(p);
 }
 
 //------------------------------------------
@@ -197,7 +324,7 @@ int getCommandLine(int argc, char** argv, pList *p)
                 fprintf(OUTPUT_PRINT, "   -Q                     :  Verify presence of Pololu adaptor and exit.\n");
 #endif
                 fprintf(OUTPUT_PRINT, "   -M                     :  Verify Magnetometer presence and version.\n");
-                fprintf(OUTPUT_PRINT, "   -P                     :  Show all current settings and exit.\n");
+                fprintf(OUTPUT_PRINT, "   -P                     :  Show all current settings (host-side config + RM3100 chip register readback) and exit.\n");
                 fprintf(OUTPUT_PRINT, "   -S                     :  List devices seen on i2c bus and exit.\n");
                 fprintf(OUTPUT_PRINT, "   -T                     :  Verify Temperature sensor presence and version and exit.\n");
                 fprintf(OUTPUT_PRINT, "   -u                     :  Use named pipes for output.\n");
