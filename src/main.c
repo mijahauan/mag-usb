@@ -603,9 +603,28 @@ char *formatOutput(pList *p)
 
     i2c_readMagPOLL(p);
 
-    xyz[0] = (((double)p->XYZ[0] / p->NOSRegValue) / p->x_gain) * 1000; // make microTeslas -> nanoTeslas
-    xyz[1] = (((double)p->XYZ[1] / p->NOSRegValue) / p->y_gain) * 1000; // make microTeslas -> nanoTeslas
-    xyz[2] = (((double)p->XYZ[2] / p->NOSRegValue) / p->z_gain) * 1000; // make microTeslas -> nanoTeslas
+    // PNI scaling per the gain equation in src/magdata.c above
+    // setCycleCountRegs and PNI's RM3100 docs:
+    //
+    //     field_µT = raw_count / (NOS · gain)
+    //     field_nT = field_µT · 1000
+    //
+    // where gain = 0.3671·CC + 1.5 (per axis) and NOS is the value
+    // programmed into the chip's NOS register.  Empirically the
+    // RM3100 applies NOS as an internal accumulator factor even in
+    // POLL mode -- writing NOS=N causes raw 24-bit XYZ output to be
+    // ~N× a single-cycle measurement, regardless of POLL vs CMM
+    // sampling mode.  Dividing by p->NOSRegValue here reverses that
+    // accumulation.  This is correct ONLY when the chip's NOS
+    // register has actually been written to match p->NOSRegValue:
+    // i2c_initMagSensor() does that via setNOSReg() before issuing
+    // the first POLL.  Before that fix landed, setNOSReg() was
+    // stubbed and the chip stayed at its power-on default (no
+    // accumulation), so this /NOS divisor silently shrank values
+    // by ~NOS (default 60) for years.
+    xyz[0] = (((double)p->XYZ[0] / p->NOSRegValue) / p->x_gain) * 1000;
+    xyz[1] = (((double)p->XYZ[1] / p->NOSRegValue) / p->y_gain) * 1000;
+    xyz[2] = (((double)p->XYZ[2] / p->NOSRegValue) / p->z_gain) * 1000;
 
     // Apply orientation translations (rotations) from config
     apply_orientation(p, &xyz[0], &xyz[1], &xyz[2]);
